@@ -5,19 +5,20 @@ from bot import bot
 
 app = Flask(__name__)
 
-# নতুন থ্রেড বা রিকোয়েস্টের জন্য লুপ ম্যানেজমেন্ট
+# নতুন ইভেন্ট লুপ তৈরি ও হ্যান্ডেল করা
 try:
     loop = asyncio.get_running_loop()
 except RuntimeError:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
+# Vercel স্টার্ট হওয়ার সাথে সাথে ক্লায়েন্ট কানেক্ট করা
 if not bot.is_connected:
-    loop.run_until_complete(bot.start())
+    loop.run_until_complete(bot.connect())
 
 @app.route('/', methods=['GET'])
 def home():
-    # লিংকে ঢুকলে এখন এই লেখাটি শো করবে
+    # 🎯 আপনার কাঙ্ক্ষিত লেখাটি এখানে দিয়ে দেওয়া হলো
     return "<h1>TG Bot was nirob</h1>", 200
 
 @app.route('/webhook', methods=['POST'])
@@ -26,10 +27,7 @@ def webhook():
         json_string = request.get_data().decode('utf-8')
         update = Update.de_json(bot, json_string)
         
-        # ক্র্যাশ আটকাতে সেফলি রান করা হচ্ছে
-        local_loop = asyncio.new_event_loop()
-        local_loop.run_until_complete(bot.push_update(update))
-        local_loop.close()
-        
+        # ওয়েব হুকের মাধ্যমে মেসেজ প্রসেস করা
+        loop.run_until_complete(bot.push_update(update))
         return 'OK', 200
     return 'Invalid Request', 400
