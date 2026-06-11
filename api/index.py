@@ -1,43 +1,45 @@
 import os
-import base64
-from flask import Flask, request
 import telebot
+from flask import Flask, request
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pymongo import MongoClient
 
 app = Flask(__name__)
 
-# --- কনফিগারেশন ---
+# ==================== [ কনফিগারেশন সেকশন ] ====================
 BOT_TOKEN = "8801111906:AAFFVl18DgPhwZzVNMMUg5NAAuHLQZC6mxQ"
 MONGO_URI = "mongodb+srv://Nirob999:JP6K47Cd8K0TEGgs@cluster0.qsvhw83.mongodb.net/?appName=Cluster0"
 DB_NAME = "FreeFileBot"
-CHANNEL_USERNAME = "ffallfileupdate"
-CREDIT_TEXT = "\n\n**Developer: nirob**"
+CREDIT_TEXT = "\n\n<b>Developer: nirob</b>"
 
-# --- বট এবং ডাটাবেজ ইনিশিয়ালাইজ ---
+# 🎯 এখানে আপনি যত খুশি গ্রুপ বা চ্যানেল বাটনের নাম ও ইউজারনেম যোগ করতে পারবেন।
+# ⚠️ মনে রাখবেন: সব চ্যানেল ও গ্রুপে আপনার বটটিকে অবশ্যই 'Admin' বানাতে হবে।
+CHANNELS = [
+    {"name": "📢 আমাদের মেইন চ্যানেল", "username": "ffallfileupdate"},
+    {"name": "👥 আমাদের ব্যাকআপ গ্রুপ", "username": "এখানে_আপনার_গ্রুপের_ইউজারনেম_দিন"},
+    {"name": "🎬 মুভি আপডেট চ্যানেল", "username": "এখানে_আরেকটি_ইউজারনেম_দিন"}
+]
+# =============================================================
+
+# --- বট এবং ডাটাবেজ কানেকশন ---
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client[DB_NAME]
 files_col = db["files"]
 
-# --- সাহায্যকারী ফাংশন ---
-def encode_id(file_id):
-    return base64.urlsafe_b64encode(str(file_id).encode('ascii')).decode('ascii').replace("=", "")
+# --- ইউজার সবগুলো গ্রুপে জয়েন আছে কি না তা চেক করার ফাংশন ---
+def check_all_subscriptions(user_id):
+    for chan in CHANNELS:
+        try:
+            member = bot.get_chat_member(f"@{chan['username']}", user_id)
+            if member.status not in ['member', 'administrator', 'creator']:
+                return False
+        except Exception:
+            # বট যদি কোনো গ্রুপে এডমিন না থাকে, তবে সেফটির জন্য False ধরবে যাতে এডমিন বুঝতে পারে
+            return False
+    return True
 
-def decode_id(base64_id):
-    padding = '=' * (4 - len(base64_id) % 4)
-    return int(base64.urlsafe_b64decode((base64_id + padding).encode('ascii')).decode('ascii'))
-
-def is_subscribed(user_id):
-    try:
-        member = bot.get_chat_member(f"@{CHANNEL_USERNAME}", user_id)
-        if member.status in ['member', 'administrator', 'creator']:
-            return True
-        return False
-    except Exception:
-        return True
-
-# --- ওয়েবসাইট লিংক চেক ---
+# --- ওয়েবসাইট লিংক চেক (হোমপেজ) ---
 @app.route('/', methods=['GET'])
 def home():
     return "<h1>TG Bot was nirob</h1>", 200
@@ -52,30 +54,38 @@ def webhook():
         return 'OK', 200
     return 'Invalid Request', 400
 
-# --- বটের কমান্ডসমূহ ---
+# --- /start কমান্ড হ্যান্ডলার ---
 @bot.message_handler(commands=['start'])
 def start_command(message):
     user_id = message.from_user.id
     text_split = message.text.split()
     param = text_split[1] if len(text_split) > 1 else None
 
-    if not is_subscribed(user_id):
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}"))
-        markup.add(InlineKeyboardButton("🔄 Verify / Try Again", url=f"https://t.me/{bot.get_me().username}?start={param if param else ''}"))
+    # ১. ইউজার সব গ্রুপ/চ্যানেলে জয়েন আছে কি না চেক করা
+    if not check_all_subscriptions(user_id):
+        markup = InlineKeyboardMarkup(row_width=1)
+        
+        # আপনার লিস্টে থাকা সব গ্রুপ অটোমেটিক বাটন হয়ে যাবে
+        for chan in CHANNELS:
+            markup.add(InlineKeyboardButton(text=chan['name'], url=f"https://t.me/{chan['username']}"))
+        
+        # ভেরিফাই বাটন
+        back_url = f"https://t.me/{bot.get_me().username}?start={param if param else ''}"
+        markup.add(InlineKeyboardButton("🔄 Verify / Try Again", url=back_url))
         
         bot.send_message(
             message.chat.id,
-            "⚠️ **আপনাকে প্রথমে আমাদের আপডেট চ্যানেলে জয়েন হতে হবে!**\n\nনিচের বাটনে ক্লিক করে জয়েন হয়ে 'Verify' বা 'Try Again' বাটনে চাপুন।",
+            "⚠️ <b>আপনাকে আমাদের সবকটি গ্রুপ ও চ্যানেলে জয়েন হতে হবে!</b>\n\n"
+            "নিচের বাটনগুলোতে ক্লিক করে সবগুলোতে জয়েন হয়ে নিন। তারপর <b>Verify</b> বাটনে চাপুন। জয়েন না করে ভেরিফাই করলে ফাইল পাবেন না।",
             reply_markup=markup,
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         return
 
+    # ২. ইউজার সব গ্রুপে জয়েন থাকলে ডাটাবেজ থেকে ফাইল পাঠানো
     if param:
         try:
-            db_id = decode_id(param)
-            file_data = files_col.find_one({"_id": db_id})
+            file_data = files_col.find_one({"_id": param})
             
             if file_data:
                 caption = file_data.get("caption", "") + CREDIT_TEXT
@@ -83,22 +93,74 @@ def start_command(message):
                 file_id = file_data["file_id"]
 
                 if file_type == "document":
-                    bot.send_document(message.chat.id, file_id, caption=caption, parse_mode="Markdown")
+                    bot.send_document(message.chat.id, file_id, caption=caption, parse_mode="HTML")
                 elif file_type == "video":
-                    bot.send_video(message.chat.id, file_id, caption=caption, parse_mode="Markdown")
+                    bot.send_video(message.chat.id, file_id, caption=caption, parse_mode="HTML")
                 elif file_type == "audio":
-                    bot.send_audio(message.chat.id, file_id, caption=caption, parse_mode="Markdown")
+                    bot.send_audio(message.chat.id, file_id, caption=caption, parse_mode="HTML")
                 elif file_type == "photo":
-                    bot.send_photo(message.chat.id, file_id, caption=caption, parse_mode="Markdown")
+                    bot.send_photo(message.chat.id, file_id, caption=caption, parse_mode="HTML")
             else:
-                bot.send_message(message.chat.id, "❌ ফাইলটি খুঁজে পাওয়া যায়নি।")
+                bot.send_message(message.chat.id, "❌ ফাইলটি ডাটাবেজে খুঁজে পাওয়া যায়নি বা ডিলিট করা হয়েছে।")
         except Exception:
-            bot.send_message(message.chat.id, "❌ কোনো একটি সমস্যা হয়েছে। আবার চেষ্টা করুন।")
+            bot.send_message(message.chat.id, "❌ কোনো একটি কারিগরি সমস্যা হয়েছে। দয়া করে মূল লিংক থেকে আবার চেষ্টা করুন।")
         return
 
+    # ৩. কোনো লিংক ছাড়া সাধারণ স্টার্ট দিলে এই মেসেজ যাবে
     markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("📤 ফাইল আপলোড করুন", callback_data="upload_info"))
-    markup.add(InlineKeyboardButton("📢 আমাদের চ্যানেল", url=f"https://t.me/{CHANNEL_USERNAME}"))
+    markup.add(InlineKeyboardButton("📢 মেইন চ্যানেল", url=f"https://t.me/{CHANNELS[0]['username']}"))
+    
+    bot.send_message(
+        message.chat.id,
+        f"👋 হ্যালো <b>{message.from_user.first_name}</b>!\n\n"
+        f"আমি একটি ফাইল শেয়ারিং বট। লিংক তৈরি করতে যেকোনো ফাইল (ভিডিও/ডকুমেন্ট) সরাসরি এখানে আপলোড বা ফরওয়ার্ড করুন।{CREDIT_TEXT}",
+        reply_markup=markup,
+        parse_mode="HTML"
+    )
+
+# --- এডমিন ফাইল আপলোড করলে অটো লিংক জেনারেট করার সেকশন ---
+@bot.message_handler(content_types=['document', 'video', 'audio', 'photo'])
+def handle_files(message):
+    file_id = None
+    file_type = None
+    
+    if message.document:
+        file_id = message.document.file_id
+        file_type = "document"
+    elif message.video:
+        file_id = message.video.file_id
+        file_type = "video"
+    elif message.audio:
+        file_id = message.audio.file_id
+        file_type = "audio"
+    elif message.photo:
+        file_id = message.photo[-1].file_id
+        file_type = "photo"
+
+    # ফাইল আপলোডের সময় ডেসক্রিপশন/ক্যাপশন থাকলে সেটা অটো সেভ হবে
+    caption = message.caption if message.caption else "এখানে আপনার কাঙ্ক্ষিত ফাইল রয়েছে।"
+    
+    # লিংকের জন্য ইউনিক আইডি তৈরি করা
+    db_id = file_id[-20:].replace("_", "").replace("-", "")
+    
+    # ডাটাবেজে আপডেট বা ইনসার্ট করা
+    files_col.update_one(
+        {"_id": db_id},
+        {"$set": {"file_id": file_id, "file_type": file_type, "caption": caption}},
+        upsert=True
+    )
+
+    # বটের অটোমেটিক গভীর শেয়ারিং লিংক তৈরি
+    share_link = f"https://t.me/{bot.get_me().username}?start={db_id}"
+
+    bot.send_message(
+        message.chat.id,
+        f"✅ <b>আপনার ফাইলটি ডাটাবেজে সেভ হয়েছে এবং লিংক রেডি!</b>\n\n"
+        f"📝 <b>ডেসক্রিপশন:</b> {caption}\n\n"
+        f"🔗 <b>আপনার শেয়ারিং লিংক:</b> <code>{share_link}</code>\n\n"
+        f"<i>এই লিংকটি শেয়ার করুন। লিংকে ক্লিক করলে ইউজারকে আগে সব গ্রুপে জয়েন হতে বলবে, তারপর ফাইল দেবে।</i>{CREDIT_TEXT}",
+        parse_mode="HTML"
+    )    markup.add(InlineKeyboardButton("📢 আমাদের চ্যানেল", url=f"https://t.me/{CHANNEL_USERNAME}"))
     
     bot.send_message(
         message.chat.id,
