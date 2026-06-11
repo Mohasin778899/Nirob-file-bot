@@ -1,18 +1,15 @@
-import os
 import base64
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from pyrogram.errors import UserNotParticipant
 from pymongo import MongoClient
 
-# --- আপনার দেওয়া সব কনফিগারেশন এখানে সরাসরি বসিয়ে দেওয়া হলো ---
+# --- আপনার দেওয়া কনফিগারেশন ---
 API_ID = 30215456
 API_HASH = "3f21de1981591d8a9b835a2df078c00b"
+BOT_TOKEN = "8801111906:AAFFVl18DgPhwZzVNMMUg5NAAuHLQZC6mxQ"
 MONGO_URI = "mongodb+srv://Nirob999:JP6K47Cd8K0TEGgs@cluster0.qsvhw83.mongodb.net/?appName=Cluster0"
 DB_NAME = "FreeFileBot"
-
-# ⚠️ শুধু নিচের এই একটি লাইনে আপনার বটফাদার থেকে পাওয়া টোকেনটি বসিয়ে দিন
-BOT_TOKEN = "8801111906:AAFFVl18DgPhwZzVNMMUg5NAAuHLQZC6mxQ"
 
 CHANNEL_USERNAME = "ffallfileupdate" 
 CREDIT_TEXT = "\n\n**Developer: nirob**"
@@ -22,7 +19,15 @@ mongo_client = MongoClient(MONGO_URI)
 db = mongo_client[DB_NAME]
 files_col = db["files"]
 
-bot = Client("FreeFileBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, workers=1)
+# Vercel Serverless-এর জন্য অপ্টিমাইজড ক্লায়েন্ট
+bot = Client(
+    "FreeFileBot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN,
+    workers=4,
+    in_memory=True
+)
 
 # --- সাহায্যকারী ফাংশন ---
 def encode_id(file_id):
@@ -41,13 +46,12 @@ async def is_subscribed(client, user_id):
     except Exception:
         return True 
 
-# --- বটের কমান্ডসমূহ ---
+# --- কমান্ডসমূহ ---
 @bot.on_message(filters.command("start") & filters.private)
 async def start_command(client, message: Message):
     user_id = message.from_user.id
     param = message.text.split()[1] if len(message.text.split()) > 1 else None
     
-    # Force Subscribe চেক
     if not await is_subscribed(client, user_id):
         buttons = [
             [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")],
@@ -59,7 +63,6 @@ async def start_command(client, message: Message):
         )
         return
 
-    # লিংক থেকে ফাইল ডাউনলোড
     if param:
         try:
             db_id = decode_id(param)
@@ -78,7 +81,6 @@ async def start_command(client, message: Message):
             await message.reply_text("❌ কোনো একটি সমস্যা হয়েছে। আবার চেষ্টা করুন।")
         return
 
-    # সাধারণ মেনু
     buttons = [
         [InlineKeyboardButton("📤 ফাইল আপলোড করুন", callback_data="upload_info")],
         [InlineKeyboardButton("📢 আমাদের চ্যানেল", url=f"https://t.me/{CHANNEL_USERNAME}")]
@@ -119,4 +121,4 @@ async def handle_files(client, message: Message):
         f"🔗 **ডাউনলোড লিংক:** `{share_link}`\n\n"
         f"এই লিংকটি সবার সাথে শেয়ার করতে পারেন।{CREDIT_TEXT}",
         disable_web_page_preview=True
-    )
+        )
