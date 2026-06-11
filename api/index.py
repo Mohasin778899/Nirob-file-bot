@@ -12,20 +12,16 @@ MONGO_URI = "mongodb+srv://Nirob999:JP6K47Cd8K0TEGgs@cluster0.qsvhw83.mongodb.ne
 DB_NAME = "FreeFileBot"
 CREDIT_TEXT = "\n\n<b>Developer: nirob</b>"
 
-# 🎯 আপনার মেইন চ্যানেল সেট করে দেওয়া হয়েছে। 
-# ⚠️ মনে রাখবেন: এই চ্যানেলে আপনার বটটিকে অবশ্যই 'Admin' বানাতে হবে।
 CHANNELS = [
     {"name": "📢 আমাদের মেইন চ্যানেল", "username": "ffallfileupdate"}
 ]
 # =============================================================
 
-# --- বট এবং ডাটাবেজ কানেকশন ---
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client[DB_NAME]
 files_col = db["files"]
 
-# --- ইউজার সবগুলো গ্রুপে জয়েন আছে কি না তা চেক করার ফাংশন ---
 def check_all_subscriptions(user_id):
     for chan in CHANNELS:
         try:
@@ -33,41 +29,47 @@ def check_all_subscriptions(user_id):
             if member.status not in ['member', 'administrator', 'creator']:
                 return False
         except Exception:
-            # কোনো কারণে চেক করতে না পারলে বা বট এডমিন না থাকলে সেফটির জন্য False ধরবে
             return False
     return True
 
-# --- ওয়েবসাইট লিংক চেক (হোমপেজ) ---
 @app.route('/', methods=['GET'])
 def home():
     return "<h1>TG Bot was nirob</h1>", 200
 
-# --- টেলিগ্রাম ওয়েব হুক রুট ---
-@app.route('/webhook', methods=['POST'])
+# 🛠️ Vercel সিকিউরিটি বাইপাস রুট (যাতে টেলিগ্রামের মেসেজ ব্লক না হয়)
+@app.route('/webhook', methods=['POST', 'OPTIONS'])
 def webhook():
+    # OPTIONS রিকোয়েস্ট আসলে Vercel-কে হ্যান্ডশেক সিগন্যাল পাঠানো
+    if request.method == 'OPTIONS':
+        response = app.make_response(('OK', 200))
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'POST, GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        return response
+
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
         update = telebot.types.Update.de_json(json_string)
         bot.process_new_updates([update])
-        return 'OK', 200
+        
+        # রেসপন্স হেডারে সিকিউরিটি পারমিশন পাস করা
+        response = app.make_response(('OK', 200))
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
+        
     return 'Invalid Request', 400
 
-# --- /start কমান্ড হ্যান্ডলার ---
 @bot.message_handler(commands=['start'])
 def start_command(message):
     user_id = message.from_user.id
     text_split = message.text.split()
     param = text_split[1] if len(text_split) > 1 else None
 
-    # ১. ইউজার সব গ্রুপ/চ্যানেলে জয়েন আছে কি না চেক করা
     if not check_all_subscriptions(user_id):
         markup = InlineKeyboardMarkup(row_width=1)
-        
-        # আপনার লিস্টে থাকা সব গ্রুপ অটোমেটিক বাটন হয়ে যাবে
         for chan in CHANNELS:
             markup.add(InlineKeyboardButton(text=chan['name'], url=f"https://t.me/{chan['username']}"))
         
-        # ভেরিফাই বাটন
         back_url = f"https://t.me/{bot.get_me().username}?start={param if param else ''}"
         markup.add(InlineKeyboardButton("🔄 Verify / Try Again", url=back_url))
         
@@ -80,11 +82,9 @@ def start_command(message):
         )
         return
 
-    # ২. ইউজার সব গ্রুপে জয়েন থাকলে ডাটাবেজ থেকে ফাইল পাঠানো
     if param:
         try:
             file_data = files_col.find_one({"_id": param})
-            
             if file_data:
                 caption = file_data.get("caption", "") + CREDIT_TEXT
                 file_type = file_data.get("file_type")
@@ -104,7 +104,6 @@ def start_command(message):
             bot.send_message(message.chat.id, "❌ কোনো একটি কারিগরি সমস্যা হয়েছে। দয়া করে মূল লিংক থেকে আবার চেষ্টা করুন।")
         return
 
-    # ৩. কোনো লিংক ছাড়া সাধারণ স্টার্ট দিলে এই মেসেজ যাবে
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("📢 মেইন চ্যানেল", url=f"https://t.me/{CHANNELS[0]['username']}"))
     
@@ -116,7 +115,6 @@ def start_command(message):
         parse_mode="HTML"
     )
 
-# --- ফাইল আপলোড করলে অটো লিংক জেনারেট করার সেকশন ---
 @bot.message_handler(content_types=['document', 'video', 'audio', 'photo'])
 def handle_files(message):
     file_id = None
@@ -135,20 +133,15 @@ def handle_files(message):
         file_id = message.photo[-1].file_id
         file_type = "photo"
 
-    # ফাইল আপলোডের সময় ডেসক্রিপশন/ক্যাপশন থাকলে সেটা অটো সেভ হবে
     caption = message.caption if message.caption else "এখানে আপনার কাঙ্ক্ষিত ফাইল রয়েছে।"
-    
-    # লিংকের জন্য ইউনিক আইডি তৈরি করা
     db_id = file_id[-20:].replace("_", "").replace("-", "")
     
-    # ডাটাবেজে আপডেট বা ইনসার্ট করা
     files_col.update_one(
         {"_id": db_id},
         {"$set": {"file_id": file_id, "file_type": file_type, "caption": caption}},
         upsert=True
     )
 
-    # বটের অটোমেটিক শেয়ারিং লিংক তৈরি
     share_link = f"https://t.me/{bot.get_me().username}?start={db_id}"
 
     bot.send_message(
@@ -158,4 +151,4 @@ def handle_files(message):
         f"🔗 <b>আপনার শেয়ারিং লিংক:</b> <code>{share_link}</code>\n\n"
         f"<i>এই লিংকটি শেয়ার করুন। লিংকে ক্লিক করলে ইউজারকে আগে চ্যানেলে জয়েন হতে বলবে, তারপর ফাইল দেবে।</i>{CREDIT_TEXT}",
         parse_mode="HTML"
-            )
+    )
