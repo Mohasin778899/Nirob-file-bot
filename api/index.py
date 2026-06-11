@@ -12,12 +12,10 @@ MONGO_URI = "mongodb+srv://Nirob999:JP6K47Cd8K0TEGgs@cluster0.qsvhw83.mongodb.ne
 DB_NAME = "FreeFileBot"
 CREDIT_TEXT = "\n\n<b>Developer: nirob</b>"
 
-# 🎯 এখানে আপনি যত খুশি গ্রুপ বা চ্যানেল বাটনের নাম ও ইউজারনেম যোগ করতে পারবেন।
-# ⚠️ মনে রাখবেন: সব চ্যানেল ও গ্রুপে আপনার বটটিকে অবশ্যই 'Admin' বানাতে হবে।
+# 🎯 আপনার মেইন চ্যানেল সেট করে দেওয়া হয়েছে। 
+# ⚠️ মনে রাখবেন: এই চ্যানেলে আপনার বটটিকে অবশ্যই 'Admin' বানাতে হবে।
 CHANNELS = [
-    {"name": "📢 আমাদের মেইন চ্যানেল", "username": "ffallfileupdate"},
-    {"name": "👥 আমাদের ব্যাকআপ গ্রুপ", "username": "এখানে_আপনার_গ্রুপের_ইউজারনেম_দিন"},
-    {"name": "🎬 মুভি আপডেট চ্যানেল", "username": "এখানে_আরেকটি_ইউজারনেম_দিন"}
+    {"name": "📢 আমাদের মেইন চ্যানেল", "username": "ffallfileupdate"}
 ]
 # =============================================================
 
@@ -35,7 +33,7 @@ def check_all_subscriptions(user_id):
             if member.status not in ['member', 'administrator', 'creator']:
                 return False
         except Exception:
-            # বট যদি কোনো গ্রুপে এডমিন না থাকে, তবে সেফটির জন্য False ধরবে যাতে এডমিন বুঝতে পারে
+            # কোনো কারণে চেক করতে না পারলে বা বট এডমিন না থাকলে সেফটির জন্য False ধরবে
             return False
     return True
 
@@ -75,8 +73,8 @@ def start_command(message):
         
         bot.send_message(
             message.chat.id,
-            "⚠️ <b>আপনাকে আমাদের সবকটি গ্রুপ ও চ্যানেলে জয়েন হতে হবে!</b>\n\n"
-            "নিচের বাটনগুলোতে ক্লিক করে সবগুলোতে জয়েন হয়ে নিন। তারপর <b>Verify</b> বাটনে চাপুন। জয়েন না করে ভেরিফাই করলে ফাইল পাবেন না।",
+            "⚠️ <b>আপনাকে আমাদের আপডেট চ্যানেলে জয়েন হতে হবে!</b>\n\n"
+            "নিচের বাটনে ক্লিক করে চ্যানেলে জয়েন হয়ে নিন। তারপর <b>Verify / Try Again</b> বাটনে চাপুন। জয়েন না করে ভেরিফাই করলে ফাইল পাবেন না।",
             reply_markup=markup,
             parse_mode="HTML"
         )
@@ -118,7 +116,7 @@ def start_command(message):
         parse_mode="HTML"
     )
 
-# --- এডমিন ফাইল আপলোড করলে অটো লিংক জেনারেট করার সেকশন ---
+# --- ফাইল আপলোড করলে অটো লিংক জেনারেট করার সেকশন ---
 @bot.message_handler(content_types=['document', 'video', 'audio', 'photo'])
 def handle_files(message):
     file_id = None
@@ -150,7 +148,7 @@ def handle_files(message):
         upsert=True
     )
 
-    # বটের অটোমেটিক গভীর শেয়ারিং লিংক তৈরি
+    # বটের অটোমেটিক শেয়ারিং লিংক তৈরি
     share_link = f"https://t.me/{bot.get_me().username}?start={db_id}"
 
     bot.send_message(
@@ -158,65 +156,6 @@ def handle_files(message):
         f"✅ <b>আপনার ফাইলটি ডাটাবেজে সেভ হয়েছে এবং লিংক রেডি!</b>\n\n"
         f"📝 <b>ডেসক্রিপশন:</b> {caption}\n\n"
         f"🔗 <b>আপনার শেয়ারিং লিংক:</b> <code>{share_link}</code>\n\n"
-        f"<i>এই লিংকটি শেয়ার করুন। লিংকে ক্লিক করলে ইউজারকে আগে সব গ্রুপে জয়েন হতে বলবে, তারপর ফাইল দেবে।</i>{CREDIT_TEXT}",
+        f"<i>এই লিংকটি শেয়ার করুন। লিংকে ক্লিক করলে ইউজারকে আগে চ্যানেলে জয়েন হতে বলবে, তারপর ফাইল দেবে।</i>{CREDIT_TEXT}",
         parse_mode="HTML"
-    )    markup.add(InlineKeyboardButton("📢 আমাদের চ্যানেল", url=f"https://t.me/{CHANNEL_USERNAME}"))
-    
-    bot.send_message(
-        message.chat.id,
-        f"👋 হ্যালো **{message.from_user.first_name}**!\n\nআমি একটি ফ্রি ফাইল ডাউনলোডার বট। আপনি এখানে ফাইল আপলোড করে শেয়ারিং লিংক তৈরি করতে পারবেন।{CREDIT_TEXT}",
-        reply_markup=markup,
-        parse_mode="Markdown"
-    )
-
-@bot.callback_query_handler(func=lambda call: True)
-def cb_handler(call):
-    if call.data == "upload_info":
-        bot.edit_message_text(
-            "ℹ️ **ফাইল আপলোড করার নিয়ম:**\n\nসরাসরি বটের ইনবক্সে যেকোনো ফাইল পাঠান। সাথে আপনার পছন্দমতো ক্যাপশন বা ডেসক্রিপশন লিখে দিতে পারেন।",
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode="Markdown"
-        )
-
-@bot.message_handler(content_types=['document', 'video', 'audio', 'photo'])
-def handle_files(message):
-    file_id = None
-    file_type = None
-    
-    if message.document:
-        file_id = message.document.file_id
-        file_type = "document"
-    elif message.video:
-        file_id = message.video.file_id
-        file_type = "video"
-    elif message.audio:
-        file_id = message.audio.file_id
-        file_type = "audio"
-    elif message.photo:
-        file_id = message.photo[-1].file_id
-        file_type = "photo"
-
-    caption = message.caption if message.caption else "এখানে আপনার ফাইল রয়েছে।"
-
-    last_file = files_col.find_one(sort=[("_id", -1)])
-    next_id = (last_file["_id"] + 1) if last_file else 1
-    
-    files_col.insert_one({
-        "_id": next_id,
-        "file_id": file_id,
-        "file_type": file_type,
-        "caption": caption
-    })
-
-    string_id = encode_id(next_id)
-    share_link = f"https://t.me/{bot.get_me().username}?start={string_id}"
-
-    bot.send_message(
-        message.chat.id,
-        f"✅ **আপনার ফাইলটি সফলভাবে সেভ হয়েছে!**\n\n"
-        f"📝 **ডেসক্রিপশন:** {caption}\n\n"
-        f"🔗 **ডাউনলোড লিংক:** `{share_link}`\n\n"
-        f"এই লিংকটি সবার সাথে শেয়ার করতে পারেন।{CREDIT_TEXT}",
-        parse_mode="Markdown"
-                             )
+            )
