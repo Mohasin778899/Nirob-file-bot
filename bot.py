@@ -19,14 +19,14 @@ mongo_client = MongoClient(MONGO_URI)
 db = mongo_client[DB_NAME]
 files_col = db["files"]
 
-# Vercel Serverless-এর জন্য অপ্টিমাইজড ক্লায়েন্ট
+# 💡 Vercel-এর জন্য সেশন ফাইল তৈরি বন্ধ করতে in_memory=True করা হয়েছে
 bot = Client(
     "FreeFileBot",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
-    workers=4,
-    in_memory=True
+    in_memory=True,
+    workers=0
 )
 
 # --- সাহায্যকারী ফাংশন ---
@@ -46,7 +46,7 @@ async def is_subscribed(client, user_id):
     except Exception:
         return True 
 
-# --- কমান্ডসমূহ ---
+# --- বটের কমান্ডসমূহ ---
 @bot.on_message(filters.command("start") & filters.private)
 async def start_command(client, message: Message):
     user_id = message.from_user.id
@@ -121,4 +121,4 @@ async def handle_files(client, message: Message):
         f"🔗 **ডাউনলোড লিংক:** `{share_link}`\n\n"
         f"এই লিংকটি সবার সাথে শেয়ার করতে পারেন।{CREDIT_TEXT}",
         disable_web_page_preview=True
-        )
+)
