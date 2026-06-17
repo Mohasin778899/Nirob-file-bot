@@ -1,17 +1,19 @@
 import os
+import asyncio
 import base64
+from json import loads
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, Update
 from pyrogram.errors import UserNotParticipant
 from pymongo import MongoClient
 
-# --- আপনার দেওয়া সব কনফিগারেশন ---
+# --- কনফিগারেশন ---
 API_ID = 30215456
 API_HASH = "3f21de1981591d8a9b835a2df078c00b"
 MONGO_URI = "mongodb+srv://Nirob999:JP6K47Cd8K0TEGgs@cluster0.qsvhw83.mongodb.net/?appName=Cluster0"
 DB_NAME = "FreeFileBot"
 
-# ⚠️ শুধু নিচের লাইনে আপনার বট টোকেনটি বসিয়ে দিন
+# ⚠️ এখানে আপনার বট টোকেন দিন
 BOT_TOKEN = "8801111906:AAFFVl18DgPhwZzVNMMUg5NAAuHLQZC6mxQ"
 
 CHANNEL_USERNAME = "ffallfileupdate" 
@@ -22,7 +24,8 @@ mongo_client = MongoClient(MONGO_URI)
 db = mongo_client[DB_NAME]
 files_col = db["files"]
 
-bot = Client("FreeFileBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, workers=1)
+# No_updates=True দিতে হবে কারণ আমরা নিজেরা আপডেট হ্যান্ডেল করব
+bot = Client("FreeFileBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, no_updates=True)
 
 # --- সাহায্যকারী ফাংশন ---
 def encode_id(file_id):
@@ -46,10 +49,8 @@ async def is_subscribed(client, user_id):
 async def start_command(client, message: Message):
     user_id = message.from_user.id
     param = message.text.split()[1] if len(message.text.split()) > 1 else None
-    
     bot_info = await client.get_me()
     
-    # Force Subscribe চেক
     if not await is_subscribed(client, user_id):
         buttons = [
             [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")],
@@ -61,44 +62,68 @@ async def start_command(client, message: Message):
         )
         return
 
-    # লিংক থেকে ফাইল ডাউনলোড
     if param:
         try:
             db_id = decode_id(param)
             file_data = files_col.find_one({"_id": db_id})
-            
             if file_data:
                 caption = file_data.get("caption", "") + CREDIT_TEXT
-                await client.send_cached_media(
-                    chat_id=user_id,
-                    file_id=file_data["file_id"],
-                    caption=caption
-                )
+                await client.send_cached_media(chat_id=user_id, file_id=file_data["file_id"], caption=caption)
             else:
                 await message.reply_text("❌ ফাইলটি খুঁজে পাওয়া যায়নি।")
         except Exception:
             await message.reply_text("❌ কোনো একটি সমস্যা হয়েছে। আবার চেষ্টা করুন।")
         return
 
-    # সাধারণ মেনু
     buttons = [
         [InlineKeyboardButton("📤 ফাইল আপলোড করুন", callback_data="upload_info")],
         [InlineKeyboardButton("📢 আমাদের চ্যানেল", url=f"https://t.me/{CHANNEL_USERNAME}")]
     ]
     await message.reply_text(
-        f"👋 হ্যালো **{message.from_user.first_name}**!\n\nআমি একটি ফ্রি ফাইল ডাউনলোডার বট। আপনি এখানে ফাইল আপলোড করে শেয়ারিং লিংক তৈরি করতে পারবেন।{CREDIT_TEXT}",
+        f"👋 হ্যালো **{message.from_user.first_name}**!\n\nআমি একটি ফ্রি ফাইল ডাউনলোডার বট।{CREDIT_TEXT}",
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
 @bot.on_callback_query()
 async def cb_handler(client, query):
     if query.data == "upload_info":
-        await query.message.edit_text(
-            "ℹ️ **ফাইল আপলোড করার নিয়ম:**\n\nসরাসরি বটের ইনবক্সে যেকোনো ফাইল পাঠান। সাথে আপনার পছন্দমতো ক্যাপশন বা ডেসক্রিপশন লিখে দিতে পারেন।"
-        )
+        await query.message.edit_text("ℹ️ **ফাইল আপলোড করার নিয়ম:**\n\nসরাসরি বটের ইনবক্সে যেকোনো ফাইল পাঠান।")
 
 @bot.on_message((filters.document | filters.video | filters.audio | filters.photo) & filters.private)
 async def handle_files(client, message: Message):
+    media = message.document or message.video or message.audio or message.photo
+    file_id = media.file_id if not isinstance(media, list) else media[0].file_id
+    caption = message.caption if message.caption else "এখানে আপনার ফাইল রয়েছে।"
+
+    last_file = files_col.find_one(sort=[("_id", -1)])
+    next_id = (last_file["_id"] + 1) if last_file else 1
+    
+    files_col.insert_one({"_id": next_id, "file_id": file_id, "caption": caption})
+    string_id = encode_id(next_id)
+    bot_info = await client.get_me()
+    share_link = f"https://t.me/{bot_info.username}?start={string_id}"
+
+    await message.reply_text(
+        f"✅ **আপনার ফাইলটি সফলভাবে সেভ হয়েছে!**\n\n🔗 **ডাউনলোড লিংক:** `{share_link}`",
+        disable_web_page_preview=True
+    )
+
+# --- Vercel WSGI / ASGI Handler ---
+# এটি Vercel রিকোয়েস্ট রিসিভ করার জন্য ব্যবহার করবে
+async def handler(request):
+    if request.method == "POST":
+        try:
+            body = await request.json()
+            async with bot:
+                # টেলিগ্রাম থেকে আসা আপডেট Pyrogram অবজেক্টে রূপান্তর করা
+                update = Update.稼_parse(bot, body)
+                await bot.handle_update(update)
+            return {"statusCode": 200, "body": "OK"}
+        except Exception as e:
+            return {"statusCode": 500, "body": str(e)}
+    
+    # ব্রাউজারে লিংক ওপেন করলে এটি দেখাবে
+    return {"statusCode": 200, "body": "Bot is running on Webhook!"}async def handle_files(client, message: Message):
     media = message.document or message.video or message.audio or message.photo
     file_id = media.file_id if not isinstance(media, list) else media[0].file_id
     caption = message.caption if message.caption else "এখানে আপনার ফাইল রয়েছে।"
