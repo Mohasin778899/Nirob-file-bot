@@ -14,7 +14,7 @@ MONGO_URI = "mongodb+srv://Nirob999:JP6K47Cd8K0TEGgs@cluster0.qsvhw83.mongodb.ne
 DB_NAME = "FreeFileBot"
 
 # ⚠️ আপনার বট টোকেন দিন
-BOT_TOKEN = "এখানে_আপনার_বট_টোকেন_বসান"
+BOT_TOKEN = "8801111906:AAFFVl18DgPhwZzVNMMUg5NAAuHLQZC6mxQ"
 
 CHANNEL_USERNAME = "ffallfileupdate" 
 CREDIT_TEXT = "\n\n**Developer: nirob**"
