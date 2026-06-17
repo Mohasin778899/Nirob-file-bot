@@ -1,7 +1,7 @@
 import os
 import asyncio
 import base64
-from json import loads
+from fastapi import FastAPI, Request
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, Update
 from pyrogram.errors import UserNotParticipant
@@ -13,8 +13,8 @@ API_HASH = "3f21de1981591d8a9b835a2df078c00b"
 MONGO_URI = "mongodb+srv://Nirob999:JP6K47Cd8K0TEGgs@cluster0.qsvhw83.mongodb.net/?appName=Cluster0"
 DB_NAME = "FreeFileBot"
 
-# ⚠️ এখানে আপনার বট টোকেন দিন
-BOT_TOKEN = "8801111906:AAFFVl18DgPhwZzVNMMUg5NAAuHLQZC6mxQ"
+# ⚠️ আপনার বট টোকেন দিন
+BOT_TOKEN = "এখানে_আপনার_বট_টোকেন_বসান"
 
 CHANNEL_USERNAME = "ffallfileupdate" 
 CREDIT_TEXT = "\n\n**Developer: nirob**"
@@ -24,7 +24,10 @@ mongo_client = MongoClient(MONGO_URI)
 db = mongo_client[DB_NAME]
 files_col = db["files"]
 
-# No_updates=True দিতে হবে কারণ আমরা নিজেরা আপডেট হ্যান্ডেল করব
+# FastAPI App ইনিশিয়েট করা (Vercel এটিই খুঁজছে)
+app = FastAPI()
+
+# Pyrogram ক্লায়েন্ট সেটআপ
 bot = Client("FreeFileBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, no_updates=True)
 
 # --- সাহায্যকারী ফাংশন ---
@@ -49,12 +52,17 @@ async def is_subscribed(client, user_id):
 async def start_command(client, message: Message):
     user_id = message.from_user.id
     param = message.text.split()[1] if len(message.text.split()) > 1 else None
-    bot_info = await client.get_me()
     
+    try:
+        bot_info = await client.get_me()
+        bot_username = bot_info.username
+    except Exception:
+        bot_username = "FreeFileBot"
+
     if not await is_subscribed(client, user_id):
         buttons = [
             [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")],
-            [InlineKeyboardButton("🔄 Verify / Try Again", url=f"https://t.me/{bot_info.username}?start={param if param else ''}")]
+            [InlineKeyboardButton("🔄 Verify / Try Again", url=f"https://t.me/{bot_username}?start={param if param else ''}")]
         ]
         await message.reply_text(
             "⚠️ **আপনাকে প্রথমে আমাদের আপডেট চ্যানেলে জয়েন হতে হবে!**\n\nনিচের বাটনে ক্লিক করে জয়েন হয়ে 'Verify' বা 'Try Again' বাটনে চাপুন।",
@@ -100,56 +108,33 @@ async def handle_files(client, message: Message):
     
     files_col.insert_one({"_id": next_id, "file_id": file_id, "caption": caption})
     string_id = encode_id(next_id)
-    bot_info = await client.get_me()
-    share_link = f"https://t.me/{bot_info.username}?start={string_id}"
+    
+    try:
+        bot_info = await client.get_me()
+        bot_username = bot_info.username
+    except Exception:
+        bot_username = "FreeFileBot"
+        
+    share_link = f"https://t.me/{bot_username}?start={string_id}"
 
     await message.reply_text(
         f"✅ **আপনার ফাইলটি সফলভাবে সেভ হয়েছে!**\n\n🔗 **ডাউনলোড লিংক:** `{share_link}`",
         disable_web_page_preview=True
     )
 
-# --- Vercel WSGI / ASGI Handler ---
-# এটি Vercel রিকোয়েস্ট রিসিভ করার জন্য ব্যবহার করবে
-async def handler(request):
-    if request.method == "POST":
-        try:
-            body = await request.json()
-            async with bot:
-                # টেলিগ্রাম থেকে আসা আপডেট Pyrogram অবজেক্টে রূপান্তর করা
-                update = Update.稼_parse(bot, body)
-                await bot.handle_update(update)
-            return {"statusCode": 200, "body": "OK"}
-        except Exception as e:
-            return {"statusCode": 500, "body": str(e)}
-    
-    # ব্রাউজারে লিংক ওপেন করলে এটি দেখাবে
-    return {"statusCode": 200, "body": "Bot is running on Webhook!"}async def handle_files(client, message: Message):
-    media = message.document or message.video or message.audio or message.photo
-    file_id = media.file_id if not isinstance(media, list) else media[0].file_id
-    caption = message.caption if message.caption else "এখানে আপনার ফাইল রয়েছে।"
+# --- FastAPI Routes ---
 
-    last_file = files_col.find_one(sort=[("_id", -1)])
-    next_id = (last_file["_id"] + 1) if last_file else 1
-    
-    files_col.insert_one({
-        "_id": next_id,
-        "file_id": file_id,
-        "caption": caption
-    })
+@app.get("/")
+def read_root():
+    return {"status": "Bot is running on Vercel with FastAPI!"}
 
-    string_id = encode_id(next_id)
-    bot_info = await client.get_me()
-    share_link = f"https://t.me/{bot_info.username}?start={string_id}"
-
-    await message.reply_text(
-        f"✅ **আপনার ফাইলটি সফলভাবে সেভ হয়েছে!**\n\n"
-        f"📝 **ডেসক্রিপশন:** {caption}\n\n"
-        f"🔗 **ডাউনলোড লিংক:** `{share_link}`\n\n"
-        f"এই লিংকটি সবার সাথে শেয়ার করতে পারেন।{CREDIT_TEXT}",
-        disable_web_page_preview=True
-    )
-
-# বট রান করা
-if __name__ == "__main__":
-    print("Бot চালু হচ্ছে...")
-    bot.run()
+@app.post("/api")
+async def telegram_webhook(request: Request):
+    try:
+        body = await request.json()
+        async with bot:
+            update = Update.稼_parse(bot, body)
+            await bot.handle_update(update)
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "details": str(e)}
