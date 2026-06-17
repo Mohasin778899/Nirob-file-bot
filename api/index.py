@@ -1,154 +1,130 @@
 import os
-import telebot
-from flask import Flask, request
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+import base64
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from pyrogram.errors import UserNotParticipant
 from pymongo import MongoClient
 
-app = Flask(__name__)
-
-# ==================== [ কনফিগারেশন সেকশন ] ====================
-BOT_TOKEN = "8801111906:AAFFVl18DgPhwZzVNMMUg5NAAuHLQZC6mxQ"
+# --- আপনার দেওয়া সব কনফিগারেশন ---
+API_ID = 30215456
+API_HASH = "3f21de1981591d8a9b835a2df078c00b"
 MONGO_URI = "mongodb+srv://Nirob999:JP6K47Cd8K0TEGgs@cluster0.qsvhw83.mongodb.net/?appName=Cluster0"
 DB_NAME = "FreeFileBot"
-CREDIT_TEXT = "\n\n<b>Developer: nirob</b>"
 
-CHANNELS = [
-    {"name": "📢 আমাদের মেইন চ্যানেল", "username": "ffallfileupdate"}
-]
-# =============================================================
+# ⚠️ শুধু নিচের লাইনে আপনার বট টোকেনটি বসিয়ে দিন
+BOT_TOKEN = "8801111906:AAFFVl18DgPhwZzVNMMUg5NAAuHLQZC6mxQ"
 
-bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
+CHANNEL_USERNAME = "ffallfileupdate" 
+CREDIT_TEXT = "\n\n**Developer: nirob**"
+
+# --- ডাটাবেজ সেটআপ ---
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client[DB_NAME]
 files_col = db["files"]
 
-def check_all_subscriptions(user_id):
-    for chan in CHANNELS:
-        try:
-            member = bot.get_chat_member(f"@{chan['username']}", user_id)
-            if member.status not in ['member', 'administrator', 'creator']:
-                return False
-        except Exception:
-            return False
-    return True
+bot = Client("FreeFileBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, workers=1)
 
-@app.route('/', methods=['GET'])
-def home():
-    return "<h1>TG Bot was nirob</h1>", 200
+# --- সাহায্যকারী ফাংশন ---
+def encode_id(file_id):
+    return base64.urlsafe_b64encode(str(file_id).encode('ascii')).decode('ascii').replace("=", "")
 
-# 🛠️ Vercel সিকিউরিটি বাইপাস রুট (যাতে টেলিগ্রামের মেসেজ ব্লক না হয়)
-@app.route('/webhook', methods=['POST', 'OPTIONS'])
-def webhook():
-    # OPTIONS রিকোয়েস্ট আসলে Vercel-কে হ্যান্ডশেক সিগন্যাল পাঠানো
-    if request.method == 'OPTIONS':
-        response = app.make_response(('OK', 200))
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Methods'] = 'POST, GET, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-        return response
+def decode_id(base64_id):
+    padding = '=' * (4 - len(base64_id) % 4)
+    return int(base64.urlsafe_b64decode((base64_id + padding).encode('ascii')).decode('ascii'))
 
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        
-        # রেসপন্স হেডারে সিকিউরিটি পারমিশন পাস করা
-        response = app.make_response(('OK', 200))
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        return response
-        
-    return 'Invalid Request', 400
+async def is_subscribed(client, user_id):
+    try:
+        await client.get_chat_member(CHANNEL_USERNAME, user_id)
+        return True
+    except UserNotParticipant:
+        return False
+    except Exception:
+        return True 
 
-@bot.message_handler(commands=['start'])
-def start_command(message):
+# --- বটের কমান্ডসমূহ ---
+@bot.on_message(filters.command("start") & filters.private)
+async def start_command(client, message: Message):
     user_id = message.from_user.id
-    text_split = message.text.split()
-    param = text_split[1] if len(text_split) > 1 else None
-
-    if not check_all_subscriptions(user_id):
-        markup = InlineKeyboardMarkup(row_width=1)
-        for chan in CHANNELS:
-            markup.add(InlineKeyboardButton(text=chan['name'], url=f"https://t.me/{chan['username']}"))
-        
-        back_url = f"https://t.me/{bot.get_me().username}?start={param if param else ''}"
-        markup.add(InlineKeyboardButton("🔄 Verify / Try Again", url=back_url))
-        
-        bot.send_message(
-            message.chat.id,
-            "⚠️ <b>আপনাকে আমাদের আপডেট চ্যানেলে জয়েন হতে হবে!</b>\n\n"
-            "নিচের বাটনে ক্লিক করে চ্যানেলে জয়েন হয়ে নিন। তারপর <b>Verify / Try Again</b> বাটনে চাপুন। জয়েন না করে ভেরিফাই করলে ফাইল পাবেন না।",
-            reply_markup=markup,
-            parse_mode="HTML"
+    param = message.text.split()[1] if len(message.text.split()) > 1 else None
+    
+    bot_info = await client.get_me()
+    
+    # Force Subscribe চেক
+    if not await is_subscribed(client, user_id):
+        buttons = [
+            [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")],
+            [InlineKeyboardButton("🔄 Verify / Try Again", url=f"https://t.me/{bot_info.username}?start={param if param else ''}")]
+        ]
+        await message.reply_text(
+            "⚠️ **আপনাকে প্রথমে আমাদের আপডেট চ্যানেলে জয়েন হতে হবে!**\n\nনিচের বাটনে ক্লিক করে জয়েন হয়ে 'Verify' বা 'Try Again' বাটনে চাপুন।",
+            reply_markup=InlineKeyboardMarkup(buttons)
         )
         return
 
+    # লিংক থেকে ফাইল ডাউনলোড
     if param:
         try:
-            file_data = files_col.find_one({"_id": param})
+            db_id = decode_id(param)
+            file_data = files_col.find_one({"_id": db_id})
+            
             if file_data:
                 caption = file_data.get("caption", "") + CREDIT_TEXT
-                file_type = file_data.get("file_type")
-                file_id = file_data["file_id"]
-
-                if file_type == "document":
-                    bot.send_document(message.chat.id, file_id, caption=caption, parse_mode="HTML")
-                elif file_type == "video":
-                    bot.send_video(message.chat.id, file_id, caption=caption, parse_mode="HTML")
-                elif file_type == "audio":
-                    bot.send_audio(message.chat.id, file_id, caption=caption, parse_mode="HTML")
-                elif file_type == "photo":
-                    bot.send_photo(message.chat.id, file_id, caption=caption, parse_mode="HTML")
+                await client.send_cached_media(
+                    chat_id=user_id,
+                    file_id=file_data["file_id"],
+                    caption=caption
+                )
             else:
-                bot.send_message(message.chat.id, "❌ ফাইলটি ডাটাবেজে খুঁজে পাওয়া যায়নি বা ডিলিট করা হয়েছে।")
+                await message.reply_text("❌ ফাইলটি খুঁজে পাওয়া যায়নি।")
         except Exception:
-            bot.send_message(message.chat.id, "❌ কোনো একটি কারিগরি সমস্যা হয়েছে। দয়া করে মূল লিংক থেকে আবার চেষ্টা করুন।")
+            await message.reply_text("❌ কোনো একটি সমস্যা হয়েছে। আবার চেষ্টা করুন।")
         return
 
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("📢 মেইন চ্যানেল", url=f"https://t.me/{CHANNELS[0]['username']}"))
-    
-    bot.send_message(
-        message.chat.id,
-        f"👋 হ্যালো <b>{message.from_user.first_name}</b>!\n\n"
-        f"আমি একটি ফাইল শেয়ারিং বট। লিংক তৈরি করতে যেকোনো ফাইল (ভিডিও/ডকুমেন্ট) সরাসরি এখানে আপলোড বা ফরওয়ার্ড করুন।{CREDIT_TEXT}",
-        reply_markup=markup,
-        parse_mode="HTML"
+    # সাধারণ মেনু
+    buttons = [
+        [InlineKeyboardButton("📤 ফাইল আপলোড করুন", callback_data="upload_info")],
+        [InlineKeyboardButton("📢 আমাদের চ্যানেল", url=f"https://t.me/{CHANNEL_USERNAME}")]
+    ]
+    await message.reply_text(
+        f"👋 হ্যালো **{message.from_user.first_name}**!\n\nআমি একটি ফ্রি ফাইল ডাউনলোডার বট। আপনি এখানে ফাইল আপলোড করে শেয়ারিং লিংক তৈরি করতে পারবেন।{CREDIT_TEXT}",
+        reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-@bot.message_handler(content_types=['document', 'video', 'audio', 'photo'])
-def handle_files(message):
-    file_id = None
-    file_type = None
-    
-    if message.document:
-        file_id = message.document.file_id
-        file_type = "document"
-    elif message.video:
-        file_id = message.video.file_id
-        file_type = "video"
-    elif message.audio:
-        file_id = message.audio.file_id
-        file_type = "audio"
-    elif message.photo:
-        file_id = message.photo[-1].file_id
-        file_type = "photo"
+@bot.on_callback_query()
+async def cb_handler(client, query):
+    if query.data == "upload_info":
+        await query.message.edit_text(
+            "ℹ️ **ফাইল আপলোড করার নিয়ম:**\n\nসরাসরি বটের ইনবক্সে যেকোনো ফাইল পাঠান। সাথে আপনার পছন্দমতো ক্যাপশন বা ডেসক্রিপশন লিখে দিতে পারেন।"
+        )
 
-    caption = message.caption if message.caption else "এখানে আপনার কাঙ্ক্ষিত ফাইল রয়েছে।"
-    db_id = file_id[-20:].replace("_", "").replace("-", "")
+@bot.on_message((filters.document | filters.video | filters.audio | filters.photo) & filters.private)
+async def handle_files(client, message: Message):
+    media = message.document or message.video or message.audio or message.photo
+    file_id = media.file_id if not isinstance(media, list) else media[0].file_id
+    caption = message.caption if message.caption else "এখানে আপনার ফাইল রয়েছে।"
+
+    last_file = files_col.find_one(sort=[("_id", -1)])
+    next_id = (last_file["_id"] + 1) if last_file else 1
     
-    files_col.update_one(
-        {"_id": db_id},
-        {"$set": {"file_id": file_id, "file_type": file_type, "caption": caption}},
-        upsert=True
+    files_col.insert_one({
+        "_id": next_id,
+        "file_id": file_id,
+        "caption": caption
+    })
+
+    string_id = encode_id(next_id)
+    bot_info = await client.get_me()
+    share_link = f"https://t.me/{bot_info.username}?start={string_id}"
+
+    await message.reply_text(
+        f"✅ **আপনার ফাইলটি সফলভাবে সেভ হয়েছে!**\n\n"
+        f"📝 **ডেসক্রিপশন:** {caption}\n\n"
+        f"🔗 **ডাউনলোড লিংক:** `{share_link}`\n\n"
+        f"এই লিংকটি সবার সাথে শেয়ার করতে পারেন।{CREDIT_TEXT}",
+        disable_web_page_preview=True
     )
 
-    share_link = f"https://t.me/{bot.get_me().username}?start={db_id}"
-
-    bot.send_message(
-        message.chat.id,
-        f"✅ <b>আপনার ফাইলটি ডাটাবেজে সেভ হয়েছে এবং লিংক রেডি!</b>\n\n"
-        f"📝 <b>ডেসক্রিপশন:</b> {caption}\n\n"
-        f"🔗 <b>আপনার শেয়ারিং লিংক:</b> <code>{share_link}</code>\n\n"
-        f"<i>এই লিংকটি শেয়ার করুন। লিংকে ক্লিক করলে ইউজারকে আগে চ্যানেলে জয়েন হতে বলবে, তারপর ফাইল দেবে।</i>{CREDIT_TEXT}",
-        parse_mode="HTML"
-    )
+# বট রান করা
+if __name__ == "__main__":
+    print("Бot চালু হচ্ছে...")
+    bot.run()
